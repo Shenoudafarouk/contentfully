@@ -9,6 +9,7 @@ import {
 import fullContent from "./data/linked.json";
 import draftedContent from "./data/draftedContent.json";
 import localeContent from "./data/locale.json";
+import localesResultContent from "./data/localesResult.json";
 
 
 // setup mocks
@@ -259,20 +260,26 @@ describe("Linked entities and assets with wildcard locale", () => {
         environmentId: "testing"
     };
     const mockClientQuery = jest.fn()
-        .mockImplementation(async () => {
+        .mockImplementationOnce(async () => {
             return _.cloneDeep(localeContent)
-        });
+        })
+    const mockClientLocales = jest.fn()
+        .mockImplementationOnce(async () => {
+            return _.cloneDeep(localesResultContent)
+        })
 
     // test setup
     beforeEach(() => {
         // clear all instances
         MockContentfulClient.mockClear();
         mockClientQuery.mockClear();
+        mockClientLocales.mockClear();
 
         // create implementation
         MockContentfulClient.mockImplementation(() => {
             return {
-                query: mockClientQuery
+                query: mockClientQuery,
+                getLocales: mockClientLocales
             };
         });
     });
@@ -288,7 +295,8 @@ describe("Linked entities and assets with wildcard locale", () => {
         const result = await contentfully.getModels({
             locale: '*'
         });
-
+        // const fs = require("fs")
+        // fs.writeFileSync("output-locale.json",JSON.stringify(result,null,2))
         // assert invocations
         expect(MockContentfulClient).toHaveBeenCalledTimes(1);
         expect(mockClientQuery).toHaveBeenCalledTimes(1);

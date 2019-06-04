@@ -76,7 +76,15 @@ export class Contentfully {
         const links = await this._createLinks(json, multiLocale, options.mediaTransform);
 
         // get transformed items (should be flattened)
-        const items = this._parseEntries(json.items, links, multiLocale);
+        let items = this._parseEntries(json.items, links, multiLocale);
+
+        // split locales to top level objects
+        if (multiLocale) {
+            const locales = await this.contentful.getLocales()
+            items = this._flattenLocales(locales, items)
+            const fs = require('fs')
+            fs.writeFileSync('testing.json', JSON.stringify(items, null, 2))
+        }
 
         // return result
         return {
@@ -322,4 +330,99 @@ export class Contentfully {
         return link;
     }
 
+    private _flattenLocales(localesResult: { items: [{name: string, code: string, default: boolean | undefined, fallbackCode: any}]}, items: any) {
+
+        // this does not handle circular references well
+        // TODO handle fallback codes
+
+        // define for a tree node looks like
+        interface node {
+            context: any,
+            item: any,
+            depth: number
+        }
+
+        // get needed values from locales result
+        const locales = localesResult.items;
+        const localeCodes = locales.map((locale) => locale.code);
+        const defaultLocaleObj = locales.find(locale => locale.default !== undefined && locale.default);
+        const defaultLocale = defaultLocaleObj ? defaultLocaleObj.code : "en-US";
+
+        // create the object that will hold all the items for each locale
+        const localeItems = {} as any;
+
+        // itterate each locale
+        for (let locale of localeCodes) {
+
+            // the box that will hold the properties for this locale
+            const localeContext = {} as any;
+            localeItems[locale] = localeContext;
+
+            // for each item itteratively walk the tree of its properties
+            for (let rawItem of items) {
+                const queue = [] as node[];
+                queue.push({
+                    context: localeContext,
+                    item: rawItem,
+                    depth: 0
+                });
+
+                while (queue.length > 0) {
+                    // pull and destruct the current node and exit early is undefined
+                    const current = queue.shift();
+                    if (current == undefined) { break; }
+                    const { context, item, depth } = current;
+
+                    // itterate each key and value on the node item
+                    for (let [key, valueObj] of Object.entries(item)) {
+                        // find the locale value or fallback to default or use the value of the prop
+                        let value = valueObj as any;
+                        if (value == undefined) { continue; }
+                        if (value[locale]) {
+                            value = value[locale];
+                        } else if (value[defaultLocale]) {
+                            value = value[defaultLocale];
+                        }
+                        // handle primitives
+                        if (typeof value !== "object") {
+                            context[key] = value;
+                            continue;
+                        }
+                        // handle Objects
+                        if (Array.isArray(value) === false) {
+                            const itemContext = {};
+                            context[key] = itemContext;
+                            queue.push({
+                                context: itemContext,
+                                item: value,
+                                depth: depth + 1
+                            });
+                            continue;
+                        }
+                        // handle Arrays
+                        const itemContext = [] as any[];
+                        context[key] = itemContext;
+
+                        // iterate each item in the array and handle them
+                        for (let index in value as Array<any>) {
+                            // handle primitives
+                            if (typeof value[index] !== "object") {
+                                itemContext[index] = value[index];
+                                continue;
+                            }
+                            // handle objects
+                            // TODO explicitly handle nested arrays?
+                            itemContext[index] = {};
+                            queue.push({
+                                context: itemContext[index],
+                                item: value[index],
+                                depth: depth + 1
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        return localeItems;
+    }
 }
