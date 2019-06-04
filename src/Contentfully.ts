@@ -75,13 +75,16 @@ export class Contentfully {
         // parse includes
         const links = await this._createLinks(json, multiLocale, options.mediaTransform);
 
-        // get transformed items (should be flattened)
+        // get transformed items
         let items = this._parseEntries(json.items, links, multiLocale);
 
         // split locales to top level objects
-        if (multiLocale) {
+        if (multiLocale && (options.flatten === undefined) || options.flatten === true) {
+            console.log('flattening')
             const locales = await this.contentful.getLocales()
             items = this._flattenLocales(locales, items)
+        } else {
+            console.log('not flattening')
         }
 
         // return result
