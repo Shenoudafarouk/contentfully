@@ -295,8 +295,7 @@ describe("Linked entities and assets with wildcard locale", () => {
         const result = await contentfully.getModels({
             locale: '*'
         });
-        // const fs = require("fs")
-        // fs.writeFileSync("output-locale.json",JSON.stringify(result,null,2))
+
         // assert invocations
         expect(MockContentfulClient).toHaveBeenCalledTimes(1);
         expect(mockClientQuery).toHaveBeenCalledTimes(1);
@@ -307,11 +306,20 @@ describe("Linked entities and assets with wildcard locale", () => {
             skip: 0,
             limit: 1000
         });
-        expect(result.items).toBeInstanceOf(Array);
-        expect(result.items.length).toEqual(1);
+        expect(result.items).toBeInstanceOf(Object);
+        expect(result.items).toHaveProperty("en-CA");
+        expect(result.items).toHaveProperty("en-CA-BC");
+        expect(result.items).toHaveProperty("fr-CA");
+        expect(result.items["en-CA"]).toBeInstanceOf(Array);
+        expect(result.items["en-CA-BC"]).toBeInstanceOf(Array);
+        expect(result.items["fr-CA"]).toBeInstanceOf(Array);
+        expect(result.items["en-CA"].length).toEqual(1);
+        expect(result.items["en-CA-BC"].length).toEqual(1);
+        expect(result.items["fr-CA"].length).toEqual(1);
 
-        const nav = _.get(result, 'items[0].nav.en-CA');
-        const navLeftItems = _.get(nav, 'itemsLeft.en-CA');
+        // check that nested locales are now lifted
+        let nav = _.get(result, 'items.en-CA[0].nav');
+        let navLeftItems = _.get(nav, 'itemsLeft');
 
         expect(nav).toBeDefined();
         expect(navLeftItems).toBeInstanceOf(Array);
@@ -319,42 +327,62 @@ describe("Linked entities and assets with wildcard locale", () => {
             expect.objectContaining({
                 _id: "7DtmnYUzXUKgygyyomKaQ2",
                 _type: "link",
-                url: {
-                    "en-CA": "#howItWorks"
-                },
-                type: {
-                    "en-CA": "Link"
-                },
-                id: {
-                    "en-CA": "howItWorksLink"
-                },
-                text: {
-                    "en-CA": "How It Works",
-                    "fr-CA": "Fonctionnement"
-                }
+                url: "#howItWorks",
+                type: "Link",
+                id: "howItWorksLink",
+                text: "How It Works",
             })
         ]));
 
-        const heroBanner = (_.get(result, 'items[0].heroBanner.en-CA'));
-        const heroBannerContent = _.get(heroBanner, 'content.en-CA.title');
-        const heroBannerLogo = _.get(heroBanner, 'logo');
+        nav = _.get(result, 'items.fr-CA[0].nav');
+        navLeftItems = _.get(nav, 'itemsLeft');
 
-        expect(heroBanner).toBeDefined();
-        expect(heroBannerContent).toHaveProperty('en-CA')
-        expect(heroBannerContent).toHaveProperty('en-CA-BC');
-        expect(heroBannerContent).toHaveProperty('fr-CA');
+        // check french copy is included for the french locale
+        // check that fallback default english is used for the french locale
+        expect(nav).toBeDefined();
+        expect(navLeftItems).toBeInstanceOf(Array);
+        expect(navLeftItems).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                _id: "7DtmnYUzXUKgygyyomKaQ2",
+                _type: "link",
+                url: "#howItWorks",
+                type: "Link",
+                id: "howItWorksLink",
+                text: "Fonctionnement",
+            })
+        ]));
 
-        expect(heroBannerLogo).toHaveProperty('en-CA');
-        expect(heroBannerLogo['en-CA']).toHaveProperty('size');
-        expect(heroBannerLogo['en-CA']).toHaveProperty('contentType');
-        expect(heroBannerLogo['en-CA'].dimensions).toMatchObject({
+        const heroBannerEN_CA = (_.get(result, 'items.en-CA[0].heroBanner'));
+        const heroBannerContentEN_CA = _.get(heroBannerEN_CA, 'content.title');
+        const heroBannerLogoEN_CA = _.get(heroBannerEN_CA, 'logo');
+
+        const heroBannerFR_CA = (_.get(result, 'items.fr-CA[0].heroBanner'));
+        const heroBannerContentFR_CA = _.get(heroBannerFR_CA, 'content.title');
+        const heroBannerLogoFR_CA = _.get(heroBannerFR_CA, 'logo');
+
+        const heroBannerEN_CA_BC = (_.get(result, 'items.en-CA-BC[0].heroBanner'));
+        const heroBannerContentSubtitleEN_CA_BC = _.get(heroBannerEN_CA_BC, 'content.subtitle');
+
+        expect(heroBannerEN_CA).toBeDefined();
+        expect(heroBannerFR_CA).toBeDefined();
+        expect(heroBannerEN_CA_BC).toBeDefined();
+
+        expect(heroBannerLogoEN_CA).toBeDefined();
+        expect(heroBannerLogoEN_CA).toHaveProperty('size');
+        expect(heroBannerLogoEN_CA).toHaveProperty('contentType');
+        expect(heroBannerContentEN_CA).toEqual('Healthcare in your hands.')
+        expect(heroBannerLogoEN_CA.dimensions).toMatchObject({
             width: 500,
             height: 116
         });
-        expect(heroBannerLogo).toHaveProperty('fr-CA');
-        expect(heroBannerLogo['fr-CA']).toHaveProperty('size');
-        expect(heroBannerLogo['fr-CA']).toHaveProperty('contentType');
-        expect(heroBannerLogo['fr-CA'].dimensions).toMatchObject({
+
+        expect(heroBannerContentSubtitleEN_CA_BC).toEqual('*Doctor consultations for BC residents are covered under the Medical Services Plan (MSP).')
+
+        expect(heroBannerLogoFR_CA).toBeDefined();
+        expect(heroBannerLogoFR_CA).toHaveProperty('size');
+        expect(heroBannerLogoFR_CA).toHaveProperty('contentType');
+        expect(heroBannerContentFR_CA).toEqual('La santé au bout des doigts')
+        expect(heroBannerLogoFR_CA.dimensions).toMatchObject({
             width: 597,
             height: 157
         });

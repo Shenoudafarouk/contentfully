@@ -82,8 +82,6 @@ export class Contentfully {
         if (multiLocale) {
             const locales = await this.contentful.getLocales()
             items = this._flattenLocales(locales, items)
-            const fs = require('fs')
-            fs.writeFileSync('testing.json', JSON.stringify(items, null, 2))
         }
 
         // return result
@@ -355,14 +353,16 @@ export class Contentfully {
         for (let locale of localeCodes) {
 
             // the box that will hold the properties for this locale
-            const localeContext = {} as any;
+            const localeContext = [] as Array<any>;
             localeItems[locale] = localeContext;
 
             // for each item itteratively walk the tree of its properties
             for (let rawItem of items) {
+                const itemContext = {};
+                localeContext.push(itemContext);
                 const queue = [] as node[];
                 queue.push({
-                    context: localeContext,
+                    context: itemContext,
                     item: rawItem,
                     depth: 0
                 });
