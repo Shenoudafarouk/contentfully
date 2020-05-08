@@ -9,6 +9,7 @@ import isUndefined from "lodash/isUndefined";
 import isEmpty from "lodash/isEmpty";
 import map from "lodash/map";
 import { ContentfulClient } from "./contentful";
+import { Logger } from './helpers/logger'
 import {
     MediaTransform,
     QueryOptions
@@ -27,10 +28,12 @@ interface Locale {
     fallbackCode: string | undefined | null
 }
 
+const loggerInstance = new Logger('debug') // this should be dynamic on initialize
+const logger = loggerInstance.getLogger('contentfully:Contentfully')
+
 export class Contentfully {
 
     public readonly contentful: ContentfulClient;
-
 
     public constructor(contentful: ContentfulClient) {
 
@@ -42,6 +45,7 @@ export class Contentfully {
         return this._query(`/entries/${id}`)
         .then((result: any) => {
             if (!isUndefined(result)) {
+                logger.warn(`getModel() no result for this query ${id}`);
                 result["_id"] = id;
             }
             return result;
@@ -54,7 +58,7 @@ export class Contentfully {
 
     private async _query(path: string, query: any = {},
         options: QueryOptions = {}): Promise<QueryResult> {
-
+        logger.info(`_query() for following path ${path}`)
         // set default select values
         let select: string = 'fields'
 
@@ -95,6 +99,7 @@ export class Contentfully {
 
         // get transformed items
         if (isUndefined(json.items)) {
+            logger.warn('_query() no items in response');
             return this._parseEntry(json, [], multiLocale)
         }
 
@@ -105,6 +110,7 @@ export class Contentfully {
 
         // split locales to top level objects
         if (multiLocale && (options.flatten === undefined) || options.flatten === true) {
+            logger.debug('_query() split locales to top level objects')
             const locales = await this.contentful.getLocales()
             items = this._flattenLocales(locales, items)
         }
@@ -127,6 +133,7 @@ export class Contentfully {
             const fieldLocales = keys(field);
 
             forEach(fieldLocales, locale => {
+                logger.debug(`_parseAssetByLocale() initialize locale map of ${locale}`)
                 // initialize locale (if undefined) with sys and fields
                 if (!locales[locale]) {
                     locales[locale] = {
@@ -148,17 +155,18 @@ export class Contentfully {
         const links: any = {};
 
         // link included assets
+        logger.debug('_createLinks() create assets from response')
         for (const asset of get(json, "includes.Asset") || []) {
 
             // TODO: handle non-image assets (e.g. video)
             let media: any = {};
             const sys = asset.sys;
-
             if (multiLocale) {
                 // map asset to locale
                 const locales = this._parseAssetByLocale(asset);
                 forEach(locales, async (entry, locale) => {
                     try {
+                        logger.debug(`_createLinks() for locale: ${locale}`)
                         if (entry.fields.file) {
                             // transform asset to media
                             const transformed = await this._toMedia(sys, entry.fields, mediaTransform);
@@ -169,6 +177,7 @@ export class Contentfully {
                             media[locale] = transformed;
                         }
                     } catch (e) {
+                        logger.error(`_createLinks() error with creating media with this error: ${e}`);
                         console.error('[_createLinks] error with creating media', e);
                     }
                 });
@@ -200,6 +209,7 @@ export class Contentfully {
 
     private async _toMedia(sys: any, fields: any, mediaTransform?: MediaTransform) {
         // capture media file
+        logger.debug(`_toMedia() capture media file with title: ${fields.title}`)
         const file = fields.file;
         const description = fields.description;
         const title = fields.title;
@@ -216,6 +226,7 @@ export class Contentfully {
 
         // apply any transform (if provided)
         if (mediaTransform) {
+            logger.debug(`_toMedia() transform media with title: ${fields.title}`)
             media = await mediaTransform(media);
         }
 
@@ -223,7 +234,7 @@ export class Contentfully {
     }
 
     private _parseEntries(entries: any, links: any, multiLocale: boolean) {
-
+        logger.info('_parseEntries() parsing entries') // is this neccessary?
         // convert entries to models and return result
         return map(entries, entry => {
             // process entry if not processed
@@ -231,8 +242,8 @@ export class Contentfully {
             const modelId = sys.id;
             const model = links[modelId];
             if (model._deferred) {
-
                 // update entry with parsed value
+                logger.debug(`_parseEntries() resolved deferred entry with modelId: ${modelId}`) // should this be called in _parseEntry?
                 assign(model, (this._parseEntry(model._deferred, links, multiLocale)));
 
                 // prune deferral
@@ -263,10 +274,12 @@ export class Contentfully {
 
                 // handle null values otherwise pass back the values
                 if(!isUndefined(parsedLocale)) {
+                    logger.debug(`_parseEntry() return parsed locale value for this key: ${key}`)
                     fields[key] = parsedLocale;
                 }
             // parse array of values
             } else if (isArray(value)) {
+                logger.debug(`_parseEntry() parse array of values for key: ${key}`)
                 fields[key] = compact(map(value, item => this._parseValue(item, links)));
             }
             // or parse value
@@ -274,6 +287,7 @@ export class Contentfully {
                 const parsed = this._parseValue(value, links);
                 // handle null values otherwise pass back the values
                 if(!isUndefined(parsed)) {
+                    logger.debug(`_parseEntry() return parsed value for this key: ${key}`)
                     fields[key] = parsed;
                 }
             }
@@ -289,16 +303,19 @@ export class Contentfully {
         forEach(locales, locale => {
             // parse array of value
             if (isArray(value[locale])) {
+                logger.debug(`_parseValueByLocale() parse array of values of locale: ${locale} `)
                 values[locale] =  compact(map(value[locale], item => this._parseValue(item, links, locale)));
             }
             // or parse value
             else {
+                logger.debug(`_parseValueByLocale() parse value for this locale: ${locale}`)
                 const sys = value[locale].sys;
                 if (sys === undefined || sys.type !== "Link") {
                     values[locale] = value[locale];
                 }
                 // assign asset to values (already mapped by locale)
                 else if (sys.linkType === 'Asset') {
+                    logger.debug('_parseValueByLocale() assign asset to values')
                     values = this._dereferenceLink(value, links, locale);
                 } else {
                     values[locale] = this._dereferenceLink(value, links, locale);
@@ -314,6 +331,7 @@ export class Contentfully {
         // handle values without a link
         const sys = value.sys;
         if (sys === undefined || sys.type !== "Link") {
+            logger.debug('_parseValue() return value without a link')
             return value;
         }
 
@@ -330,13 +348,14 @@ export class Contentfully {
 
         // bail if no link
         if (!link) {
+            logger.warn('_dereferenceLink() no link provided')
             return
         }
 
         // add link id metadata
         link._id = modelId;
         if (link._deferred) {
-
+            logger.debug(`_dereferenceLink() add link id metadata: ${modelId}`)
             const deferred = link._deferred;
 
             // add link content type metadata
@@ -363,17 +382,22 @@ export class Contentfully {
         let currentLocale: Locale | undefined = locale;
         while (currentLocale != undefined) {
             if (value[currentLocale.code] !== undefined) {
+                logger.debug(`_getLocaleValue() currentLocale code provided: ${value[currentLocale.code]}`);
                 return value[currentLocale.code];
             }
             if (currentLocale.fallbackCode === null) {
+                logger.debug('_getLocaleValue() fallback code is null');
                 return value;
             }
             if (currentLocale == defaultLocale) {
+                logger.debug('_getLocaleValue() current locale matches with default locale');
                 return value;
             }
             if (currentLocale.fallbackCode === undefined) {
+                logger.debug('_getLocaleValue() fallback code is indefined');
                 currentLocale = defaultLocale;
             } else {
+                logger.debug('_getLocaleValue() use fallback code as current locale');
                 currentLocale = localeCodes[currentLocale.fallbackCode];
             }
         }
@@ -381,7 +405,6 @@ export class Contentfully {
     }
 
     private _flattenLocales(localesResult: { items: Locale[]}, items: any) {
-
         // this does not handle circular references well
         // TODO handle fallback codes
 
@@ -403,13 +426,14 @@ export class Contentfully {
 
         // itterate each locale
         for (let locale of localeCodes) {
-
+            logger.info(`_flattenLocales() build content for this locale: ${locale}`)
             // the box that will hold the properties for this locale
             const localeContext = [] as Array<any>;
             localeItems[locale] = localeContext;
 
             // for each item itteratively walk the tree of its properties
             for (let rawItem of items) {
+                logger.debug('_flattenLocales() itteratively walk the tree of each item properties')
                 const itemContext = {};
                 localeContext.push(itemContext);
                 const queue = [] as node[];
@@ -422,7 +446,10 @@ export class Contentfully {
                 while (queue.length > 0) {
                     // pull and destruct the current node and exit early is undefined
                     const current = queue.shift();
-                    if (current == undefined) { break; }
+                    if (current == undefined) {
+                        logger.debug('_flattenLocales() current node is undefined and exiting')
+                        break;
+                    }
                     const { context, item, depth } = current;
 
                     // itterate each key and value on the node item
@@ -430,18 +457,22 @@ export class Contentfully {
                         // find the locale value or fallback to default or use the value of the prop
                         let value = valueObj as any;
                         if (isUndefined(value) || isEmpty(value)) { 
+                            logger.warn('_flattenLocales() value on the node is undefined')
                             continue;
                         }
                         value = this._getLocaleValue(defaultLocaleObj, localeCodeMap, localeCodeMap[locale], value)
                         // handle primitives
                         if (typeof value !== "object") {
+                            logger.debug(`_flattenLocales() handle primitives for this key: ${key}`)
                             context[key] = value;
                             continue;
                         }
                         // handle Objects
                         if (Array.isArray(value) === false) {
+                            logger.debug(`_flattenLocales() handle object type for this key: ${key}`)
                             if(isUndefined(value) || isEmpty(value["_id"])) {
                                 // this isn't a contentful object, it's likely some sort of nested raw json
+                                logger.debug(`_flattenLocales() handle non contentful object for this key: ${key}`)
                                 context[key] = value;
                                 continue;
                             }
@@ -460,6 +491,7 @@ export class Contentfully {
 
                         // iterate each item in the array and handle them
                         for (let index in value as Array<any>) {
+                            logger.debug(`_flattenLocales() handle array type for this key: ${key}`)
                             // handle primitives
                             if (typeof value[index] !== "object") {
                                 itemContext[index] = value[index];
